@@ -7,12 +7,12 @@ make
 ```
 To replace malloc for all dynamically linked binaries running within a shell, use
 ```
-LD_PRELOAD=$(pwd)/libhushvaccnpmt.so
+LD_PRELOAD=$(pwd)/libhushvacnpmt.so
 
 ```
 For example,
 ```
-LD_PRELOAD=$(pwd)/libhushvaccnpmt.so vi READMe.md
+LD_PRELOAD=$(pwd)/libhushvacnpmt.so vi READMe.md
 ```
 
 ## Authors
