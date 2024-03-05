@@ -807,7 +807,7 @@ static inline BOOL os_free(LPVOID startAddress) {
 static inline void* os_alloc_highwater(size_t size) {
 	int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE;
 	void* result = NULL;
-	void* localHigh = FFAtomicExchangeAdvancePtr(poolHighWater, size);
+	void* localHigh;
 
 	// If we need more space from the OS, its likely to get used immediately
 	// after, so go ahead and pre-fault the pages for faster access. Except
@@ -825,6 +825,8 @@ static inline void* os_alloc_highwater(size_t size) {
         }
     }
 #endif
+
+    localHigh = FFAtomicExchangeAdvancePtr(poolHighWater, size);
 
 	while(result == NULL) {
 		// TODO: Add wrap around if we hit the top of address space
