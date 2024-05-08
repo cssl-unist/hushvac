@@ -825,8 +825,7 @@ static inline void* os_alloc_highwater(size_t size) {
         }
     }
 #endif
-
-    localHigh = FFAtomicExchangeAdvancePtr(poolHighWater, size);
+	localHigh = FFAtomicExchangeAdvancePtr(poolHighWater, size);
 
 	while(result == NULL) {
 		// TODO: Add wrap around if we hit the top of address space
@@ -1664,6 +1663,7 @@ struct reclaim_t {
     pthread_t scanner[MAX_SCANNER];
     pthread_mutex_t scanOperLock[MAX_SCANNER];
     bool volatile scanOperDone[MAX_SCANNER];
+    bool volatile scanReady[MAX_SCANNER];
     bool volatile scanOper;
 
     /*** Memory Range List START ***/
@@ -2104,7 +2104,7 @@ static void pagepool_scan(struct pagepool_t *pool, size_t mode, bool concurrent)
                             endPtr = end;
                         }
                         else {
-                            endPtr = PAGE_SIZE;
+                            endPtr = curr + PAGE_SIZE;
                         }
 
                         // Read a page
@@ -2413,9 +2413,6 @@ static void user_memory_maps(struct reclaim_t *arg) {
             continue;
         }
 
-        if (memInfo.stack) {
-            continue;
-        }
 
         // Do not scan shared mappings to mmap'd files(should not contain pointers)
         // Note: .text, .bss and .data are mapped as private file mappings
@@ -2905,8 +2902,11 @@ static void *scanner_thread(void *data) {
         // text/data/BSS sections
         FFEnterCriticalSection(arg->scanOperLock);
         //lf_dbg("[%02d] scanning", arg->id);
+        //fprintf(stderr, "[%02d] scanning\n", arg->id);
         bool concurrent = arg->arg->concurrent;
+        arg->arg->scanReady[arg->id] = false;
         while (!arg->arg->scanOperDone[arg->id]) {
+
             mem = pop_memrange(arg->arg);
             if (mem != NULL) {
                 start = mem->start;
@@ -2938,13 +2938,27 @@ static void *scanner_thread(void *data) {
         //lf_dbg("[%02d] scanning...done", arg->id);
         arg->arg->scanOperDone[arg->id] = true;
         FFLeaveCriticalSection(arg->scanOperLock);
-        usleep(500000);
+
+        while (arg->arg->scanOper) { }
+
+        arg->arg->scanReady[arg->id] = true;
     }
     return NULL;
 }
 
 static inline void start_scanner(struct reclaim_t *arg) {
+    int prepare = 0;
+
     arg->scanOper = true;
+
+    while (prepare < MAX_SCANNER) {
+        prepare = 0;
+        for (size_t i = 0; i < MAX_SCANNER; i++) {
+            if (arg->scanReady[i]) {
+                prepare += 1;
+            }
+        }
+    }
 
     for (size_t i = 0; i < MAX_SCANNER; i++) {
         arg->scanOperDone[i] = false;
@@ -2958,8 +2972,19 @@ static inline void start_scanner(struct reclaim_t *arg) {
 static void stop_scanner(struct reclaim_t *arg) {
     //bool threadStop[MAX_SCANNER];
     //bool isDone = false;
+    int oper = 0;
     
     size_t i = 0;
+
+    while (oper < MAX_SCANNER) {
+        oper = 0;
+        for (size_t j = 0; j < MAX_SCANNER; j++) {
+            if (arg->scanOperDone[arg->id]) {
+                oper += 1;
+            }
+        }
+    }
+
     while (i < MAX_SCANNER) {
         if (FFTryEnterCriticalSection(&arg->scanOperLock[i])) {
             i++;
@@ -3222,6 +3247,10 @@ int init_reclaim(struct arena_t *arena) {
                 reclaimer->largePoolList[arenaID][i] = NULL;
             }
             reclaimer->jumboPoolList[arenaID] = NULL;
+        }
+
+        for (size_t i = 0; i < MAX_SCANNER; i++) {
+            reclaimer->scanReady[i] = true;
         }
 
 	    FFInitializeCriticalSection(&reclaimer->stwLock);
@@ -3582,18 +3611,18 @@ static void* ffmalloc_small_reuse(size_t size, struct arena_t* arena) {
         if ((curr->allocSize & SEVEN64) == FOUR64) {
             if ((curr->allocSize & ~SEVEN64) == size) {
                 uint64_t allocation;
-                size_t maxAlloc, bitmapCount;
+                size_t maxAlloc;
                 maxAlloc = PAGE_SIZE / size;
-                bitmapCount = (maxAlloc & SIXTYTHREE64) ?
-                    (maxAlloc >> 6) + 1 : (maxAlloc >> 6);
+                //bitmapCount = (maxAlloc & SIXTYTHREE64) ?
+                //    (maxAlloc >> 6) + 1 : (maxAlloc >> 6);
 
                 // check empty holes
                 if (maxAlloc > 64) {
                     size_t chunkCount = 0;
 
                     for (chunkCount = 0; chunkCount < maxAlloc; chunkCount++) {
-                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6)))) &&
-                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6))))) {
+                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64))) &&
+                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64)))) {
                             FFAtomicOr(curr->bitmap.array[chunkCount >> 6], ONE64 << (chunkCount & SIXTYTHREE64));
                             FFAtomicAnd(curr->safemap.array[chunkCount >> 6], ~(ONE64 << (chunkCount & SIXTYTHREE64)));
                             allocation = (uint64_t)(curr->start) + size * chunkCount;
@@ -3616,13 +3645,13 @@ static void* ffmalloc_small_reuse(size_t size, struct arena_t* arena) {
                 }
                 else {
                     size_t j;
-                    for (j = 0; j < bitmapCount; j++) {
+                    for (j = 0; j < maxAlloc; j++) {
                         if (!((curr->bitmap.single >> j) & 0x1) && ((curr->safemap.single >> j) & 0x1)) {
                             break;
                         }
                     }
 
-                    if (j == bitmapCount) {
+                    if (j == maxAlloc) {
                         if (prev != NULL) {
                             prev->next = curr->next;
                         }
