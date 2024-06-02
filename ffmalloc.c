@@ -3621,8 +3621,10 @@ static void* ffmalloc_small_reuse(size_t size, struct arena_t* arena) {
                     size_t chunkCount = 0;
 
                     for (chunkCount = 0; chunkCount < maxAlloc; chunkCount++) {
-                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64))) &&
-                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64)))) {
+                        //if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64))) &&
+                        //    (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64)))) {
+                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6)))) &&
+                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6))))) {
                             FFAtomicOr(curr->bitmap.array[chunkCount >> 6], ONE64 << (chunkCount & SIXTYTHREE64));
                             FFAtomicAnd(curr->safemap.array[chunkCount >> 6], ~(ONE64 << (chunkCount & SIXTYTHREE64)));
                             allocation = (uint64_t)(curr->start) + size * chunkCount;
