@@ -3063,6 +3063,8 @@ static int movingGeomean(void) {
 }
 #endif
 
+// The number of consequtive STW
+
 static void *reclaim_thread(void *data)
 {
     struct reclaim_t *arg = (struct reclaim_t *)data;
@@ -3094,6 +3096,7 @@ static void *reclaim_thread(void *data)
 
     //size_t prevTotalSmallAlloc = 0;
     prevSmallAlloc[0] = 1;
+
 
     while (true) {
         //long delta = cal_nsclock() - stwStart;
@@ -3132,7 +3135,6 @@ static void *reclaim_thread(void *data)
             close(softDirty);
             softDirty = -1;
 
-            scanOrder = movingAverage();
             //scanOrder = movingGeomean();
             currSmallAlloc = totalSmallAlloc;
             totalSmallAlloc = 0;
@@ -3143,7 +3145,6 @@ static void *reclaim_thread(void *data)
                 if (counter > 3600) {
                     counter = 0;
                 }
-
                 usleep(PERIOD_DELAY);
                 continue;
             }
@@ -3621,10 +3622,10 @@ static void* ffmalloc_small_reuse(size_t size, struct arena_t* arena) {
                     size_t chunkCount = 0;
 
                     for (chunkCount = 0; chunkCount < maxAlloc; chunkCount++) {
-                        //if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64))) &&
-                        //    (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64)))) {
-                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6)))) &&
-                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6))))) {
+                        if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64))) &&
+                            (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount & SIXTYTHREE64)))) {
+                        //if (!(curr->bitmap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6)))) &&
+                        //    (curr->safemap.array[chunkCount >> 6] & (ONE64 << (chunkCount - (chunkCount << 6))))) {
                             FFAtomicOr(curr->bitmap.array[chunkCount >> 6], ONE64 << (chunkCount & SIXTYTHREE64));
                             FFAtomicAnd(curr->safemap.array[chunkCount >> 6], ~(ONE64 << (chunkCount & SIXTYTHREE64)));
                             allocation = (uint64_t)(curr->start) + size * chunkCount;
@@ -4544,9 +4545,6 @@ void* ffrealloc(void* ptr, size_t size) {
 		// the new location and then freeing the old allocation
 		void* temp = ffmalloc(size);
 		memcpy(temp, ptr, oldSize);
-#ifdef MARK_SWEEP
-        memset(ptr, 0, oldSize);
-#endif
 		free_large_pointer(pool, index, oldSize);
 		return temp;
 	}
@@ -4695,10 +4693,6 @@ void fffree(void* ptr) {
 			fflush(stderr);
 			abort();
 		}
-
-#ifdef MARK_SWEEP
-        memset(ptr, 0, size);
-#endif
 
 		free_large_pointer(pool, index, size);
 	}
