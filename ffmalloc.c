@@ -2690,7 +2690,7 @@ void reclaim_subpage(void) {
                     }
 
 
-                    if ((epochCounter == poolArray[mapID].epochCounter) && 
+                    if ((epochCounter != poolArray[mapID].epochCounter) && 
                             totalAlloc < maxAlloc) {
                         int factor = poolArray[mapID].numEpochSinceLastFree;
                         uint64_t start = (uint64_t)poolArray[mapID].start;
@@ -2713,7 +2713,7 @@ void reclaim_subpage(void) {
                         else {
                             factor /= totalAlloc;
                         }
-                        if (factor > 100) {
+                        if (factor < 100) {
                             uint64_t addr = 0;
                             bool isUnsafe = false;
                             int loc;
@@ -3202,7 +3202,7 @@ static void *reclaim_thread(void *data)
 
             stw_time += (curr - begin);
 
-            fprintf(stderr, "STW %lf sec, %d(%d, %d)\n", (double)stw_time/BILLION, counter, scanOrder, currSmallAlloc);
+            //fprintf(stderr, "STW %lf sec, %d(%d, %d)\n", (double)stw_time/BILLION, counter, scanOrder, currSmallAlloc);
             // Before resuming user thread
             scanmap_clear();
 
