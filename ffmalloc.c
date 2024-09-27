@@ -3107,8 +3107,7 @@ static void *reclaim_thread(void *data)
         totalSmallAlloc = 0;
         //if (currSmallAlloc == 0) currSmallAlloc = 1;
 
-        if (scanOrder > currSmallAlloc && currSmallAlloc > 0) {
-            descent = 1;
+        if (scanOrder > currSmallAlloc && currSmallAlloc > 0 && descent == 0) {
             
             prevSmallAlloc[counter] = currSmallAlloc;
             counter += 1;
@@ -3136,20 +3135,29 @@ static void *reclaim_thread(void *data)
             softDirty = -1;
 
             //scanOrder = movingGeomean();
+            scanOrder = movingAverage();
             currSmallAlloc = totalSmallAlloc;
             totalSmallAlloc = 0;
-            //if (currSmallAlloc == 0) currSmallAlloc = 1;
+            prevSmallAlloc[counter] = currSmallAlloc;
             if (scanOrder <= currSmallAlloc || currSmallAlloc == 0) {
-                prevSmallAlloc[counter] = currSmallAlloc;
                 counter += 1;
                 if (counter > 3600) {
                     counter = 0;
                 }
+
+                if (scanOrder > currSmallAlloc) {
+                    descent = true;
+                }
+                else {
+                    descent = false;
+                }
+
                 usleep(PERIOD_DELAY);
                 continue;
             }
 #endif
 
+            descent = true;
 
 #ifdef NO_SCAN
             send_stop_signal(arg);
@@ -3207,9 +3215,15 @@ static void *reclaim_thread(void *data)
             scanmap_clear();
 
             //
+            usleep(PERIOD_DELAY);
         }
         else {
-            descent = 0;
+            if (scanOrder > currSmallAlloc) {
+                descent = true;
+            }
+            else {
+                descent = false;
+            }
 
             prevSmallAlloc[counter] = currSmallAlloc;
             counter += 1;
